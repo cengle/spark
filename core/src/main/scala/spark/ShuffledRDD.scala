@@ -27,16 +27,25 @@ class ShuffledRDD[K, V, C](
 
   override def compute(split: Split): Iterator[(K, C)] = {
     val combiners = new JHashMap[K, C]
-    def mergePair(k: K, c: C) {
+    /*def mergePair(k: K, c: C) {
       val oldC = combiners.get(k)
       if (oldC == null) {
         combiners.put(k, c)
       } else {
         combiners.put(k, aggregator.mergeCombiners(oldC, c))
       }
+    }*/
+    def mergePair(k: K, v: V) {
+      val oldC = combiners.get(k)
+      if (oldC == null) {
+        combiners.put(k, aggregator.createCombiner(v))
+      } else {
+        combiners.put(k, aggregator.mergeValue(oldC, v))
+      }
     }
     val fetcher = SparkEnv.get.shuffleFetcher
-    fetcher.fetch[K, C](dep.shuffleId, split.index, mergePair)
+    //fetcher.fetch[K, C](dep.shuffleId, split.index, mergePair)
+    fetcher.fetch[K, V](dep.shuffleId, split.index, mergePair)
     return new Iterator[(K, C)] {
       var iter = combiners.entrySet().iterator()
 

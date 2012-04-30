@@ -23,30 +23,21 @@ class ShuffleMapTask(
     val numOutputSplits = dep.partitioner.numPartitions
     val aggregator = dep.aggregator.asInstanceOf[Aggregator[Any, Any, Any]]
     val partitioner = dep.partitioner.asInstanceOf[Partitioner]
-    val buckets = Array.tabulate(numOutputSplits)(_ => new JHashMap[Any, Any])
-    for (elem <- rdd.iterator(split)) {
-      val (k, v) = elem.asInstanceOf[(Any, Any)]
-      var bucketId = partitioner.getPartition(k)
-      val bucket = buckets(bucketId)
-      var existing = bucket.get(k)
-      if (existing == null) {
-        bucket.put(k, aggregator.createCombiner(v))
-      } else {
-        bucket.put(k, aggregator.mergeValue(existing, v))
-      }
-    }
+
     val ser = SparkEnv.get.serializer.newInstance()
+    val outs = new Array[SerializationStream](numOutputSplits)
     for (i <- 0 until numOutputSplits) {
       val file = SparkEnv.get.shuffleManager.getOutputFile(dep.shuffleId, partition, i)
-      val out = ser.outputStream(new FastBufferedOutputStream(new FileOutputStream(file)))
-      val iter = buckets(i).entrySet().iterator()
-      while (iter.hasNext()) {
-        val entry = iter.next()
-        out.writeObject((entry.getKey, entry.getValue))
-      }
-      // TODO: have some kind of EOF marker
-      out.close()
+      outs(i) = ser.outputStream(new FastBufferedOutputStream(new FileOutputStream(file)))
     }
+    
+    for (elem <- rdd.iterator(split)) {
+      val pair = elem.asInstanceOf[(Any, Any)]
+      var bucketId = partitioner.getPartition(pair._1)
+      outs(bucketId).writeObject(pair)
+    }
+
+    outs.foreach { _.close() }
     return SparkEnv.get.shuffleManager.getServerUri
   }
 
